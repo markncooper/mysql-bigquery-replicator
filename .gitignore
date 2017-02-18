@@ -1,0 +1,15 @@
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+dependency-reduced-pom.xml
+release.properties
+.idea/
+*.iml
+scalastyle-output.xml
+capistrano.log
+*.pyc
+derby.log
+*.
+*~
