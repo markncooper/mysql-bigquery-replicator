@@ -30,6 +30,8 @@ credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 parallelExecution in Test := false
 libraryDependencies ++= Seq(
   "com.appsflyer" %% "spark-bigquery" % "0.1.1",
+  "com.typesafe" % "config" % "1.2.1",
+  "mysql" % "mysql-connector-java" % "5.1.36",
   "org.mockito" % "mockito-core" % "1.8.5" % "test",
   "org.scalatest" %% "scalatest" % "2.2.5" % "test"
 )
