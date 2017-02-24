@@ -20,8 +20,8 @@ organization := "com.brigade"
 scalaVersion := "2.11.8"
 crossScalaVersions := Seq("2.10.6", "2.11.8")
 
-spName := "appsflyer-dev/spark-bigquery"
-sparkVersion := "2.0.0"
+spName := "brigade/mysql-bigquery-replicator"
+sparkVersion := "2.0.2"
 sparkComponents := Seq("core", "sql")
 spAppendScalaVersion := false
 spIncludeMaven := true
@@ -29,7 +29,8 @@ spIgnoreProvided := true
 credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 parallelExecution in Test := false
 libraryDependencies ++= Seq(
-  "com.appsflyer" %% "spark-bigquery" % "0.1.1",
+  "com.google.guava" % "guava" % "18.0",
+  "com.appsflyer" %% "spark-bigquery" % "0.1.1" exclude ("com.google.guava", "guava-jdk5"),
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
   "org.mockito" % "mockito-core" % "1.8.5" % "test",

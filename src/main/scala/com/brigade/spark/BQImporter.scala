@@ -15,8 +15,8 @@ class BQImporter(spark: SparkSession, config: Config) {
   val gcpDatasetID = gcpConfig.getString("dataset-id")
   val gcpOverwriteExisting = gcpConfig.getBoolean("overwrite-existing")
   val maxParallelWriters = gcpConfig.getInt("max-parallel-writers")
-  val gcpTablePrefix = gcpConfig.getInt("table-prefix")
-  val gcpJsonCredentialsFilename = gcpConfig.getString("gcp-json-credentials")
+  val gcpTablePrefix = gcpConfig.getString("table-prefix")
+  val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
 
   def run() = {
     Logger.info("Starting BQ importer.")
@@ -34,7 +34,7 @@ class BQImporter(spark: SparkSession, config: Config) {
       sourceDF
         .repartition(maxParallelWriters)
         .saveAsBigQueryTable(
-          s"gcpProjectID:gcpDatasetID.$gcpTablePrefix${table.name}",
+          s"$gcpProjectID:$gcpDatasetID.$gcpTablePrefix${table.name}",
           false,
           WriteDisposition.WRITE_TRUNCATE,
           CreateDisposition.CREATE_IF_NEEDED

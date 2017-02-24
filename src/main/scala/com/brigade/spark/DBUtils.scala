@@ -20,13 +20,15 @@ class DBUtils (conf: Config, sqlContext: SQLContext) {
   val blacklist = conf.getString("tables-blacklist").split(",").map{ _.trim.toLowerCase }
 
   def getConnection(tableName: String): DataFrame = {
+    Class.forName("com.mysql.jdbc.Driver")
+
+    val connProps = new java.util.Properties()
+    connProps.put("driver", "com.mysql.jdbc.Driver")
+    val jdbcUrl = s"jdbc:mysql://$host/$database?user=$username&password=$password"
+
     sqlContext
       .read
-      .format("jdbc")
-      .option("driver", "com.mysql.jdbc.Driver")
-      .option("url", s"jdbc:mysql://$host/$database?user=$username&password=$password")
-      .option("dbtable", tableName)
-      .load()
+      .jdbc(jdbcUrl, tableName, connProps)
   }
 
   def getTablesToSync(): Seq[RDBMSTable] ={
@@ -36,9 +38,10 @@ class DBUtils (conf: Config, sqlContext: SQLContext) {
       getConnection("information_schema.TABLES")
         .where(s"table_schema='$database' AND data_length is not null")
 
-    tablesDF.collect.map { row =>
+    tablesDF.printSchema()
 
-      val tableName = row.getAs[String]("table_name").toLowerCase
+    tablesDF.collect.map { row =>
+      val tableName = row.getAs[String]("TABLE_NAME").toLowerCase
       val tableSize = row.getAs[JBigDecimal]("DATA_LENGTH").longValue() + row.getAs[JBigDecimal]("INDEX_LENGTH").longValue
 
       if (!whitelist.isEmpty && !whitelist.contains(tableName)){
