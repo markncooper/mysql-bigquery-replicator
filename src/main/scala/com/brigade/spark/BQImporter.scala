@@ -1,22 +1,35 @@
 package com.brigade.spark
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.slf4j.LoggerFactory
 import com.appsflyer.spark.bigquery._
+import com.google.common.base.Splitter
 
 class BQImporter(spark: SparkSession, config: Config) {
-  @transient lazy val Logger = LoggerFactory.getLogger(getClass)
-  val sqlContext = new SQLContext(spark.sparkContext)
-  val gcpConfig = config.getConfig("gcp")
+  @transient val Logger = LoggerFactory.getLogger(getClass)
+  implicit private val sqlContext = new SQLContext(spark.sparkContext)
+  private val gcpConfig = config.getConfig("gcp")
 
-  val gcpProjectID = gcpConfig.getString("project-id")
-  val gcpTempBucketID = gcpConfig.getString("tempbucket-id")
-  val gcpDatasetID = gcpConfig.getString("dataset-id")
-  val gcpOverwriteExisting = gcpConfig.getBoolean("overwrite-existing")
-  val maxParallelWriters = gcpConfig.getInt("max-parallel-writers")
-  val gcpTablePrefix = gcpConfig.getString("table-prefix")
-  val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
+  private val gcpProjectID = gcpConfig.getString("project-id")
+  private val gcpTempBucketID = gcpConfig.getString("tempbucket-id")
+  private val gcpDatasetID = gcpConfig.getString("dataset-id")
+  private val gcpOverwriteExisting = gcpConfig.getBoolean("overwrite-existing")
+  private val maxParallelWriters = gcpConfig.getInt("max-parallel-writers")
+  private val gcpTablePrefix = gcpConfig.getString("table-prefix")
+  private val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
+  private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
+
+  def getToday(): String = {
+    val now = LocalDate.now()
+    val fmt = DateTimeFormatter.ofPattern("yyyyMMdd")
+    now.format(fmt)
+  }
+
+  def mkFQTableName(table: String) = s"$gcpProjectID:$gcpDatasetID.$gcpTablePrefix$table"
 
   def run() = {
     Logger.info("Starting BQ importer.")
@@ -26,18 +39,55 @@ class BQImporter(spark: SparkSession, config: Config) {
     sqlContext.setBigQueryGcsBucket(gcpTempBucketID)
     sqlContext.setGSProjectId(gcpProjectID)
 
-    val dbUtils = new DBUtils(config.getConfig("source-db"), spark.sqlContext)
+    val dbUtils = new DBUtils(config.getConfig("source-db"))
+    val bqUtils = new BigQueryUtils(spark)
 
-    dbUtils.getTablesToSync().foreach { table =>
-      val sourceDF = dbUtils.getConnection(table.name)
+    val tableToCopy = dbUtils.getTablesToSync()
+
+    Logger.info("About to copy:")
+    tableToCopy.foreach { tableName =>
+      Logger.info(s"\t$tableName")
+    }
+
+    tableToCopy.foreach { table =>
+      println(table)
+    }
+
+    tableToCopy.foreach { table =>
+
+      val sourceDF =
+        if (table.getKeyColumnIsKnown() && table.immutable && attemptIncrementalUpdates) {
+          val bqCurrentMaxKeyValue = bqUtils.getMaxPrimaryKeyValue(mkFQTableName(table.name), table.keyColumnName.get)
+
+          if (bqCurrentMaxKeyValue.isDefined) dbUtils.getSourceDF(table.copy(minKey = bqCurrentMaxKeyValue))
+          else dbUtils.getSourceDF(table)
+        } else {
+          dbUtils.getSourceDF(table)
+        }
+
+      val appendWrite = table.getKeyColumnIsKnown() && table.immutable
+
+      val writeDisposition
+        = if (appendWrite)
+          {
+            WriteDisposition.WRITE_APPEND
+          } else {
+            WriteDisposition.WRITE_TRUNCATE
+          }
+
+      val today = getToday()
+
+      val outputTableName =
+        if (appendWrite && table.minKey.get!=0) s"${table.name}$$$today"
+        else table.name
 
       sourceDF
-        .repartition(maxParallelWriters)
         .saveAsBigQueryTable(
-          s"$gcpProjectID:$gcpDatasetID.$gcpTablePrefix${table.name}",
-          false,
-          WriteDisposition.WRITE_TRUNCATE,
-          CreateDisposition.CREATE_IF_NEEDED
+          mkFQTableName(outputTableName),
+          appendWrite,
+          writeDisposition,
+          CreateDisposition.CREATE_IF_NEEDED,
+          true
         )
     }
 
@@ -47,6 +97,8 @@ class BQImporter(spark: SparkSession, config: Config) {
 
 object BQImporter {
   def main(args: Array[String]): Unit = {
+    val s = Splitter.on(',').splitToList("1,3,4")
+
     val config = ConfigFactory.load()
 
     val spark = SparkSession

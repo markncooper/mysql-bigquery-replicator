@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Appsflyer.
+ * Copyright 2016 Brigade Media.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import sbtassembly.AssemblyPlugin.autoImport._
 
 name := "mysql-bigquery-replicator"
 organization := "com.brigade"
@@ -29,20 +30,27 @@ spIgnoreProvided := true
 credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 parallelExecution in Test := false
 libraryDependencies ++= Seq(
-  "com.google.guava" % "guava" % "18.0",
+  "com.google.guava" % "guava" % "19.0",
+  "com.google.cloud" % "google-cloud-bigquery" % "0.9.3-beta",
   "com.appsflyer" %% "spark-bigquery" % "0.1.1" exclude ("com.google.guava", "guava-jdk5"),
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
+  "org.scalikejdbc" % "scalikejdbc_2.11" % "2.5.0",
+
   "org.mockito" % "mockito-core" % "1.8.5" % "test",
-  "org.scalatest" %% "scalatest" % "2.2.5" % "test"
+  "org.scalatest" %% "scalatest" % "2.2.5" % "test",
+  "com.h2database" % "h2" % "1.4.193" % "test",
+  "com.fasterxml.jackson.core" % "jackson-core" % "2.6.5" % "test"
 )
+
+resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
 
 // Release settings
 licenses += "Apache-2.0" -> url("http://opensource.org/licenses/Apache-2.0")
 releaseCrossBuild             := true
 releasePublishArtifactsAction := PgpKeys.publishSigned.value
 pomExtra                      := {
-  <url>https://github.com/appsflyer-dev/spark-bigquery</url>
+  <url>https://github.com/brigade/mysql-bigquery-replicator</url>
   <scm>
     <url>git@github.com/markncooper/mysql-bigquery-replicator.git</url>
     <connection>scm:git:git@github.com:markncooper/mysql-bigquery-replicator.git</connection>
@@ -56,3 +64,12 @@ pomExtra                      := {
     </developer>
   </developers>
 }
+
+assemblyMergeStrategy in assembly := {
+  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case x => MergeStrategy.first
+}
+
+assemblyShadeRules in assembly := Seq(
+  ShadeRule.rename("com.google.common.**" -> "shade.com.google.common.@1").inAll
+)
