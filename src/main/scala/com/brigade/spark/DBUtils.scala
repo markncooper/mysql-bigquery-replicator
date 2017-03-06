@@ -19,12 +19,13 @@ class DBUtils (conf: Config) {
   import DBUtils.Logger
 
   private val host = conf.getString("host")
+  private val port = conf.getString("port")
   private val username = conf.getString("username")
   private val password = conf.getString("password")
   private val database = conf.getString("database")
   private val autoParallelize = conf.getBoolean("auto-parallelize")
   private val bytesPerPartition = conf.getLong("megabytes-per-partition") * 1024 * 1024
-  private val fullJdbcUrl = s"jdbc:mysql://$host/$database?user=$username&password=$password"
+  private val fullJdbcUrl = s"jdbc:mysql://$host:$port/$database?user=$username&password=$password"
 
   private val whitelist = conf.getStringList("tables-whitelist").asScala.map { _.toLowerCase }.toSet
   private val blacklist = conf.getStringList("tables-blacklist").asScala.map { _.toLowerCase }.toSet
@@ -37,9 +38,9 @@ class DBUtils (conf: Config) {
     connectionTimeoutMillis = 3000L,
     validationQuery = "select 1 from dual")
 
-  setupScalikeJDBC(database)
+  setupConnectionPool(database)
 
-  def setupScalikeJDBC(poolName: String): Unit = {
+  def setupConnectionPool(poolName: String): ConnectionPool = {
     if (!ConnectionPool.isInitialized(poolName)) {
 
       // make sure jdbc is using the right timezone
@@ -52,6 +53,11 @@ class DBUtils (conf: Config) {
         connectionPoolSettings
       )
     }
+    ConnectionPool.get(poolName)
+  }
+
+  def getConnection() = {
+    NamedDB(database)
   }
 
   def getSourceDF(tableName: String)(implicit sqlContext: SQLContext): DataFrame = {

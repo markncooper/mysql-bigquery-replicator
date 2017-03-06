@@ -35,12 +35,15 @@ libraryDependencies ++= Seq(
   "com.appsflyer" %% "spark-bigquery" % "0.1.1" exclude ("com.google.guava", "guava-jdk5"),
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
-  "org.scalikejdbc" % "scalikejdbc_2.11" % "2.5.0",
+  "org.scalikejdbc" %% "scalikejdbc" % "2.5.0",
 
-  "org.mockito" % "mockito-core" % "1.8.5" % "test",
-  "org.scalatest" %% "scalatest" % "2.2.5" % "test",
-  "com.h2database" % "h2" % "1.4.193" % "test",
-  "com.fasterxml.jackson.core" % "jackson-core" % "2.6.5" % "test"
+  "org.apache.httpcomponents" % "httpclient" % "4.5.3",
+
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test",
+  "com.fasterxml.jackson.core" % "jackson-core" % "2.8.6",
+
+  "com.whisk" %% "docker-testkit-scalatest" % "0.9.0" % "test",
+  "com.whisk" %% "docker-testkit-impl-spotify" % "0.9.0" % "test"
 )
 
 resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
