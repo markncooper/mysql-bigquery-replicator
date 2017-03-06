@@ -86,8 +86,7 @@ class BQImporter(spark: SparkSession, config: Config) {
           mkFQTableName(outputTableName),
           appendWrite,
           writeDisposition,
-          CreateDisposition.CREATE_IF_NEEDED,
-          true
+          CreateDisposition.CREATE_IF_NEEDED
         )
     }
 
