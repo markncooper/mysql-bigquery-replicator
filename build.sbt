@@ -36,6 +36,7 @@ libraryDependencies ++= Seq(
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
   "org.scalikejdbc" %% "scalikejdbc" % "2.5.0",
+  "org.scalikejdbc" %% "scalikejdbc-test" % "2.5.0",
 
   "org.apache.httpcomponents" % "httpclient" % "4.5.3",
 
