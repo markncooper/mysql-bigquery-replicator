@@ -4,6 +4,11 @@ scala:
   - 2.11.8
 jdk: oraclejdk8
 
+sudo: required
+
+services:
+  - docker
+
 cache:
   directories:
     - $HOME/.sbt/boot
