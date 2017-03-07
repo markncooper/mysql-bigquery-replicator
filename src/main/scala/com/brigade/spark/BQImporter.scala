@@ -19,10 +19,11 @@ class BQImporter(spark: SparkSession, config: Config) {
   private val gcpTempBucketID = gcpConfig.getString("tempbucket-id")
   private val gcpDatasetID = gcpConfig.getString("dataset-id")
   private val gcpOverwriteExisting = gcpConfig.getBoolean("overwrite-existing")
-  private val maxParallelWriters = gcpConfig.getInt("max-parallel-writers")
+  private val maxParallelWriters = config.getInt("max-parallel-writers")
   private val gcpTablePrefix = gcpConfig.getString("table-prefix")
   private val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
   private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
+  private val maxRetries = config.getInt("max-retries")
 
   protected def getToday(): String = {
     val now = LocalDate.now()
@@ -39,7 +40,7 @@ class BQImporter(spark: SparkSession, config: Config) {
     sqlContext.setBigQueryProjectId(gcpProjectID)
     sqlContext.setBigQueryGcsBucket(gcpTempBucketID)
     sqlContext.setGSProjectId(gcpProjectID)
-    val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(4))
+    val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(maxParallelWriters))
 
     val dbUtils = new DBUtils(config.getConfig("source-db"))
     val bqUtils = new BigQueryUtils(spark)
@@ -88,15 +89,35 @@ class BQImporter(spark: SparkSession, config: Config) {
       if (appendWrite && sourceTable.minKey.get!=0) s"${sourceTable.name}$$$today"
       else sourceTable.name
 
-    Logger.info(s"Writing $outputTableName to BigQuery with $writeDisposition")
+    Logger.info(s"Writing $outputTableName to BigQuery with $writeDisposition.")
 
-    sourceDF
-      .saveAsBigQueryTable(
-        mkFQTableName(outputTableName),
-        appendWrite,
-        writeDisposition,
-        CreateDisposition.CREATE_IF_NEEDED
-      )
+    retry(maxRetries) {
+      sourceDF
+        .saveAsBigQueryTable(
+          mkFQTableName(outputTableName),
+          appendWrite,
+          writeDisposition,
+          CreateDisposition.CREATE_IF_NEEDED
+        )
+    }
+  }
+
+  /**
+    * Simple retry wrapper.
+    */
+  private def retry(n: Int)(fn: => Unit): Unit = {
+    try {
+      fn
+    } catch {
+      case e =>
+        if (n > 1) {
+          Logger.error("An exception occurred, retrying.", e)
+          retry(n - 1)(fn)
+        }
+        else {
+          throw new RuntimeException("Too many retries, giving up.", e)
+        }
+    }
   }
 }
 
