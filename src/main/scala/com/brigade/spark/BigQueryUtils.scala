@@ -14,6 +14,7 @@ class BigQueryUtils(spark: SparkSession) {
 
   def getMaxPrimaryKeyValue(tableName: String, tableColumn: String): Option[Long] = {
     try {
+      Logger.info(s"Getting max value for key column $tableColumn on table $tableName")
       val results = sqlContext.bigQuerySelect(s"select max($tableColumn) as maxval from [$tableName]")
 
       results.map { row =>

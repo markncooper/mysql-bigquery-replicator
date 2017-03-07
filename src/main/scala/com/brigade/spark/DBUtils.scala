@@ -18,17 +18,20 @@ case class RDBMSTable(name: String, size: Long, immutable: Boolean, keyColumnNam
 class DBUtils (conf: Config) {
   import DBUtils.Logger
 
-  private val host = conf.getString("host")
-  private val port = conf.getString("port")
-  private val username = conf.getString("username")
+  private val url = conf.getString("url")
+  private val username = conf.getString("user")
   private val password = conf.getString("password")
   private val database = conf.getString("database")
   private val autoParallelize = conf.getBoolean("auto-parallelize")
   private val bytesPerPartition = conf.getLong("megabytes-per-partition") * 1024 * 1024
-  private val fullJdbcUrl = s"jdbc:mysql://$host:$port/$database?user=$username&password=$password"
 
   private val whitelist = conf.getStringList("tables-whitelist").asScala.map { _.toLowerCase }.toSet
   private val blacklist = conf.getStringList("tables-blacklist").asScala.map { _.toLowerCase }.toSet
+
+  private val connProps = new java.util.Properties()
+  connProps.put("driver", "com.mysql.jdbc.Driver")
+  connProps.put("user", username)
+  connProps.put("password", password)
 
   Class.forName("com.mysql.jdbc.Driver")
 
@@ -47,7 +50,7 @@ class DBUtils (conf: Config) {
       TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
       ConnectionPool.add (
         poolName,
-        fullJdbcUrl,
+        url,
         username,
         password,
         connectionPoolSettings
@@ -58,15 +61,6 @@ class DBUtils (conf: Config) {
 
   def getConnection() = {
     NamedDB(database)
-  }
-
-  def getSourceDF(tableName: String)(implicit sqlContext: SQLContext): DataFrame = {
-    val connProps = new java.util.Properties()
-    connProps.put("driver", "com.mysql.jdbc.Driver")
-
-    sqlContext
-      .read
-      .jdbc(fullJdbcUrl, tableName, connProps)
   }
 
   def getKeyColumn(tableName: String): List[String] = {
@@ -113,10 +107,6 @@ class DBUtils (conf: Config) {
   }
 
   def getSourceDF(table: RDBMSTable)(implicit sqlContext: SQLContext): DataFrame = {
-    val connProps = new java.util.Properties()
-    connProps.put("driver", "com.mysql.jdbc.Driver")
-    val jdbcUrl = s"jdbc:mysql://$host/$database?user=$username&password=$password"
-
     if (autoParallelize && table.getKeyColumnIsKnown()){
       val min = table.minKey.get
       val max = table.maxKey.get
@@ -127,13 +117,13 @@ class DBUtils (conf: Config) {
       Logger.info(s"Build an DF for table ${table.name} with $min / $max / $partitions")
       sqlContext
         .read
-        .jdbc(jdbcUrl, table.name, table.keyColumnName.get, min, max, partitions, connProps)
+        .jdbc(url, table.name, table.keyColumnName.get, min, max, partitions, connProps)
     } else {
       Logger.info(s"Build an DF for table ${table.name} with NO parallelization.")
 
       sqlContext
         .read
-        .jdbc(jdbcUrl, table.name, connProps)
+        .jdbc(url, table.name, connProps)
     }
   }
 

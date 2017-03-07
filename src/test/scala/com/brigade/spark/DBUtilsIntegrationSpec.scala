@@ -24,9 +24,8 @@ class DBUtilsIntegrationSpec
 
   val appConfig = ConfigFactory.parseString(
     s""" source-db {
-      |   host = "127.0.0.1"
-      |   port = "$MysqlExposedPort"
-      |   username = $MysqlUser
+      |   url = "jdbc:mysql://127.0.0.1:$MysqlExposedPort/$MysqlDatabase"
+      |   user = $MysqlUser
       |   password = "$MysqlPassword"
       |   database = "$MysqlDatabase"
       |   tables-whitelist = [recipient_domains, tags]

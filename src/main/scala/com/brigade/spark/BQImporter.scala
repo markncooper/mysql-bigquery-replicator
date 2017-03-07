@@ -4,10 +4,11 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.spark.sql.{SQLContext, SparkSession}
+import org.apache.spark.sql.{DataFrame, SQLContext, SparkSession}
 import org.slf4j.LoggerFactory
 import com.appsflyer.spark.bigquery._
-import com.google.common.base.Splitter
+
+import scala.collection.parallel.ForkJoinTaskSupport
 
 class BQImporter(spark: SparkSession, config: Config) {
   @transient val Logger = LoggerFactory.getLogger(getClass)
@@ -23,7 +24,7 @@ class BQImporter(spark: SparkSession, config: Config) {
   private val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
   private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
 
-  def getToday(): String = {
+  protected def getToday(): String = {
     val now = LocalDate.now()
     val fmt = DateTimeFormatter.ofPattern("yyyyMMdd")
     now.format(fmt)
@@ -38,66 +39,72 @@ class BQImporter(spark: SparkSession, config: Config) {
     sqlContext.setBigQueryProjectId(gcpProjectID)
     sqlContext.setBigQueryGcsBucket(gcpTempBucketID)
     sqlContext.setGSProjectId(gcpProjectID)
+    val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(4))
 
     val dbUtils = new DBUtils(config.getConfig("source-db"))
     val bqUtils = new BigQueryUtils(spark)
 
-    val tableToCopy = dbUtils.getTablesToSync()
+    val tablesToCopy = dbUtils.getTablesToSync()
 
     Logger.info("About to copy:")
-    tableToCopy.foreach { tableName =>
+    tablesToCopy.foreach { tableName =>
       Logger.info(s"\t$tableName")
     }
 
-    tableToCopy.foreach { table =>
-      println(table)
-    }
+    val parallizedTablesToCopy = tablesToCopy.par
+    parallizedTablesToCopy.tasksupport = executor
 
-    tableToCopy.foreach { table =>
+    parallizedTablesToCopy.foreach { tableMetadata =>
 
       val sourceDF =
-        if (table.getKeyColumnIsKnown() && table.immutable && attemptIncrementalUpdates) {
-          val bqCurrentMaxKeyValue = bqUtils.getMaxPrimaryKeyValue(mkFQTableName(table.name), table.keyColumnName.get)
+        if (tableMetadata.getKeyColumnIsKnown() && tableMetadata.immutable && attemptIncrementalUpdates) {
+          val bqCurrentMaxKeyValue = bqUtils.getMaxPrimaryKeyValue(mkFQTableName(tableMetadata.name), tableMetadata.keyColumnName.get)
 
-          if (bqCurrentMaxKeyValue.isDefined) dbUtils.getSourceDF(table.copy(minKey = bqCurrentMaxKeyValue))
-          else dbUtils.getSourceDF(table)
+          if (bqCurrentMaxKeyValue.isDefined) dbUtils.getSourceDF(tableMetadata.copy(minKey = bqCurrentMaxKeyValue))
+          else dbUtils.getSourceDF(tableMetadata)
         } else {
-          dbUtils.getSourceDF(table)
+          dbUtils.getSourceDF(tableMetadata)
         }
 
-      val appendWrite = table.getKeyColumnIsKnown() && table.immutable
-
-      val writeDisposition
-        = if (appendWrite)
-          {
-            WriteDisposition.WRITE_APPEND
-          } else {
-            WriteDisposition.WRITE_TRUNCATE
-          }
-
-      val today = getToday()
-
-      val outputTableName =
-        if (appendWrite && table.minKey.get!=0) s"${table.name}$$$today"
-        else table.name
-
-      sourceDF
-        .saveAsBigQueryTable(
-          mkFQTableName(outputTableName),
-          appendWrite,
-          writeDisposition,
-          CreateDisposition.CREATE_IF_NEEDED
-        )
+      saveToBigQuery(sourceDF, tableMetadata)
     }
 
     Logger.info("Done syncing tables.")
   }
+
+  protected def saveToBigQuery(sourceDF: DataFrame, sourceTable: RDBMSTable): Unit = {
+    val today = getToday()
+    val appendWrite = sourceTable.getKeyColumnIsKnown() && sourceTable.immutable
+
+    val writeDisposition =
+      if (appendWrite && attemptIncrementalUpdates)
+        {
+          WriteDisposition.WRITE_APPEND
+        } else {
+          WriteDisposition.WRITE_TRUNCATE
+        }
+
+    val outputTableName =
+      if (appendWrite && sourceTable.minKey.get!=0) s"${sourceTable.name}$$$today"
+      else sourceTable.name
+
+    Logger.info(s"Writing $outputTableName to BigQuery with $writeDisposition")
+
+    sourceDF
+      .saveAsBigQueryTable(
+        mkFQTableName(outputTableName),
+        appendWrite,
+        writeDisposition,
+        CreateDisposition.CREATE_IF_NEEDED
+      )
+  }
 }
 
+/**
+  * Allows running as a stand-alone job or by linking to it from a wrapper job.
+  */
 object BQImporter {
   def main(args: Array[String]): Unit = {
-    val s = Splitter.on(',').splitToList("1,3,4")
-
     val config = ConfigFactory.load()
 
     val spark = SparkSession
