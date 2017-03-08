@@ -29,6 +29,8 @@ spIncludeMaven := true
 spIgnoreProvided := true
 credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 parallelExecution in Test := false
+publishMavenStyle := true
+
 libraryDependencies ++= Seq(
   "com.google.guava" % "guava" % "19.0",
   "com.google.cloud" % "google-cloud-bigquery" % "0.9.3-beta",
@@ -77,3 +79,14 @@ assemblyMergeStrategy in assembly := {
 assemblyShadeRules in assembly := Seq(
   ShadeRule.rename("com.google.common.**" -> "shade.com.google.common.@1").inAll
 )
+
+//
+// Publish to our internal repo
+//
+lazy val nexusRepoHost = System.getProperty("NEXUS_HOST", "-")
+lazy val nexusRepoUrl = System.getProperty("NEXUS_REPO_URL", "-")
+lazy val nexusUser = System.getProperty("NEXUS_USER", "-")
+lazy val nexusPassword = System.getProperty("NEXUS_PASSWORD", "-")
+
+credentials += Credentials("Sonatype Nexus Repository Manager", nexusRepoHost, nexusUser, nexusPassword)
+publishTo := Some("Brigade Nexus Repo" at nexusRepoUrl)
