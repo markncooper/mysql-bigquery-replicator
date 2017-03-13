@@ -14,7 +14,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import sbtassembly.AssemblyPlugin.autoImport._
+import sbtassembly.AssemblyPlugin.autoImport.{ShadeRule, _}
 
 name := "mysql-bigquery-replicator"
 organization := "com.brigade"
@@ -27,14 +27,15 @@ sparkComponents := Seq("core", "sql")
 spAppendScalaVersion := false
 spIncludeMaven := true
 spIgnoreProvided := true
-credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 parallelExecution in Test := false
 publishMavenStyle := true
 
 libraryDependencies ++= Seq(
-  "com.google.guava" % "guava" % "19.0",
+  "com.google.guava" % "guava" % "20.0",
+  "com.google.apis" % "google-api-services-bigquery" % "v2-rev336-1.22.0",
   "com.google.cloud" % "google-cloud-bigquery" % "0.9.3-beta",
-  "com.appsflyer" %% "spark-bigquery" % "0.1.1" exclude ("com.google.guava", "guava-jdk5"),
+  "com.google.cloud.bigdataoss" % "bigquery-connector" % "0.10.1-hadoop2"
+    exclude ("com.google.guava", "guava-jdk5"),
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
   "org.scalikejdbc" %% "scalikejdbc" % "2.5.0",
@@ -77,6 +78,7 @@ assemblyMergeStrategy in assembly := {
 }
 
 assemblyShadeRules in assembly := Seq(
+  // Conflicts with Spark
   ShadeRule.rename("com.google.common.**" -> "shade.com.google.common.@1").inAll
 )
 

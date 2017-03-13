@@ -6,7 +6,7 @@ import java.time.format.DateTimeFormatter
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.spark.sql.{DataFrame, SQLContext, SparkSession}
 import org.slf4j.LoggerFactory
-import com.appsflyer.spark.bigquery._
+//import com.appsflyer.spark.bigquery._
 
 import scala.collection.parallel.ForkJoinTaskSupport
 
@@ -24,6 +24,7 @@ class BQImporter(spark: SparkSession, config: Config) {
   private val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
   private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
   private val maxRetries = config.getInt("max-retries")
+  @transient private val bqUtils = new BrigadeBigQueryUtils(spark, gcpProjectID, gcpDatasetID, gcpTempBucketID)
 
   protected def getToday(): String = {
     val now = LocalDate.now()
@@ -31,88 +32,78 @@ class BQImporter(spark: SparkSession, config: Config) {
     now.format(fmt)
   }
 
-  def mkFQTableName(table: String) = s"$gcpProjectID:$gcpDatasetID.$gcpTablePrefix$table"
-
   def run() = {
     Logger.info("Starting BQ importer.")
 
-    sqlContext.setGcpJsonKeyFile(gcpJsonCredentialsFilename)
-    sqlContext.setBigQueryProjectId(gcpProjectID)
-    sqlContext.setBigQueryGcsBucket(gcpTempBucketID)
-    sqlContext.setGSProjectId(gcpProjectID)
     val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(maxParallelWriters))
-
     val dbUtils = new DBUtils(config.getConfig("source-db"))
-    val bqUtils = new BigQueryUtils(spark)
-
     val tablesToCopy = dbUtils.getTablesToSync()
 
     Logger.info("About to copy:")
     tablesToCopy.foreach { tableName =>
       Logger.info(s"\t$tableName")
     }
+    Logger.info(s"Into dataset $gcpDatasetID.")
 
     val parallizedTablesToCopy = tablesToCopy.par
     parallizedTablesToCopy.tasksupport = executor
 
-    parallizedTablesToCopy.foreach { tableMetadata =>
+    val failedTables =
+      parallizedTablesToCopy.flatMap { tableMetadata =>
 
-      val sourceDF =
-        if (tableMetadata.getKeyColumnIsKnown() && tableMetadata.immutable && attemptIncrementalUpdates) {
-          val bqCurrentMaxKeyValue = bqUtils.getMaxPrimaryKeyValue(mkFQTableName(tableMetadata.name), tableMetadata.keyColumnName.get)
+        val sourceDF =
+          if (tableMetadata.getKeyColumnIsKnown() && tableMetadata.immutable && attemptIncrementalUpdates) {
+            throw new RuntimeException("Not implemented yet.")
+          } else {
+            dbUtils.getSourceDF(tableMetadata)
+          }
 
-          if (bqCurrentMaxKeyValue.isDefined) dbUtils.getSourceDF(tableMetadata.copy(minKey = bqCurrentMaxKeyValue))
-          else dbUtils.getSourceDF(tableMetadata)
-        } else {
-          dbUtils.getSourceDF(tableMetadata)
-        }
+        saveToBigQuery(sourceDF, tableMetadata)
+      }
 
-      saveToBigQuery(sourceDF, tableMetadata)
+    if (failedTables.nonEmpty) {
+      Logger.error(s"Failed to copy the following tables: ${failedTables.mkString(", ")}")
     }
 
     Logger.info("Done syncing tables.")
   }
 
-  protected def saveToBigQuery(sourceDF: DataFrame, sourceTable: RDBMSTable): Unit = {
-    val today = getToday()
-    val appendWrite = sourceTable.getKeyColumnIsKnown() && sourceTable.immutable
+  /**
+    * Write the data frame to Google Cloud Storage and then kick off a job that loads that data into BigQuery.
+    * @param sourceDF
+    * @param sourceTable
+    * @return
+    */
+  protected def saveToBigQuery(sourceDF: DataFrame, sourceTable: RDBMSTable): Option[String] = {
+    val outputTableName = sourceTable.name
 
-    val writeDisposition =
-      if (appendWrite && attemptIncrementalUpdates)
-        {
-          WriteDisposition.WRITE_APPEND
-        } else {
-          WriteDisposition.WRITE_TRUNCATE
-        }
+    var gcpPath = ""
 
-    val outputTableName =
-      if (appendWrite && sourceTable.minKey.get!=0) s"${sourceTable.name}$$$today"
-      else sourceTable.name
-
-    Logger.info(s"Writing $outputTableName to BigQuery with $writeDisposition.")
-
-    retry(maxRetries) {
-      sourceDF
-        .saveAsBigQueryTable(
-          mkFQTableName(outputTableName),
-          appendWrite,
-          writeDisposition,
-          CreateDisposition.CREATE_IF_NEEDED
-        )
+    try {
+      retry(maxRetries, outputTableName) {
+        gcpPath = bqUtils.writeDFToGoogleStorage(sourceDF)
+        bqUtils.loadIntoBigTable(gcpPath, gcpTablePrefix + outputTableName)
+      }
+      None
+    } catch {
+      case e: Exception => {
+        Logger.error(s"Failed to load ${outputTableName} from $gcpPath")
+        Some(outputTableName)
+      }
     }
   }
 
   /**
     * Simple retry wrapper.
     */
-  private def retry(n: Int)(fn: => Unit): Unit = {
+  private def retry(n: Int, errorInfo: String)(fn: => Unit): Unit = {
     try {
       fn
     } catch {
-      case e =>
+      case e: Throwable =>
         if (n > 1) {
-          Logger.error("An exception occurred, retrying.", e)
-          retry(n - 1)(fn)
+          Logger.error(s"An exception occurred, retrying ${errorInfo}.", e)
+          retry(n - 1, errorInfo)(fn)
         }
         else {
           throw new RuntimeException("Too many retries, giving up.", e)
