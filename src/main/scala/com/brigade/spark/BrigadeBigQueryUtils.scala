@@ -3,12 +3,11 @@ package com.brigade.spark
 import java.util.{Collections, UUID}
 import java.util.concurrent.ExecutionException
 
-import bqutils.{BigQueryServiceFactory, GoogleBigQueryUtils => BQUtils}
+import bqutils.BigQueryServiceFactory
 import com.google.cloud.hadoop.io.bigquery.{BigQueryStrings, BigQueryUtils}
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.util.Progressable
 import org.apache.spark.sql.{DataFrame, SparkSession}
-//import com.appsflyer.spark.bigquery._
 import com.google.api.services.bigquery.Bigquery
 import com.google.api.services.bigquery.model._
 import com.google.cloud.hadoop.io.bigquery.{BigQueryConfiguration, BigQueryOutputFormat, GsonBigQueryInputFormat}
@@ -16,6 +15,7 @@ import com.google.gson.{JsonObject, JsonParser}
 import org.apache.hadoop.io.{LongWritable, NullWritable}
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat
 import org.slf4j.LoggerFactory
+import scala.collection.JavaConverters._
 
 import scala.util.Random
 
@@ -62,11 +62,18 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
     val load = new JobConfigurationLoad()
       .setDestinationTable(tableRef)
       .setAutodetect(true)
-      .setWriteDisposition("WRITE_TRUNCATE")
+      .setWriteDisposition("WRITE_APPEND")
       .setSourceFormat("NEWLINE_DELIMITED_JSON")
+      .setAllowJaggedRows(true)
+      .setAllowQuotedNewlines(true)
+      .setMaxBadRecords(0)
+      .setSchemaUpdateOptions(List("ALLOW_FIELD_RELAXATION").asJava)
       .setSourceUris(Collections.singletonList(sourceGCSPath + "/*"))
 
-    val job = bigquery.jobs().insert(tableRef.getProjectId, new Job().setConfiguration(new JobConfiguration().setLoad(load))).execute
+    val job = bigquery
+      .jobs()
+      .insert(tableRef.getProjectId, new Job().setConfiguration(new JobConfiguration().setLoad(load)))
+      .execute
 
     waitForJob(job)
 
@@ -84,25 +91,41 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
     new JobReference().setProjectId(projectId).setJobId(fullJobId)
   }
 
-  def writeDFToGoogleStorage(adaptedDf: DataFrame): String = {
-    lazy val jsonParser = new JsonParser()
+  def writeDFToGoogleStorage(inputDF: DataFrame): String = {
+    hadoopConf.synchronized {
+      lazy val jsonParser = new JsonParser()
 
-    hadoopConf.set("mapreduce.job.outputformat.class", classOf[BigQueryOutputFormat[_, _]].getName)
-    val bucket = hadoopConf.get(BigQueryConfiguration.GCS_BUCKET_KEY)
-    val temp = s"spark-bigquery-${System.currentTimeMillis()}=${Random.nextInt(Int.MaxValue)}"
-    val gcsPath = s"gs://$bucket/hadoop/tmp/spark-bigquery/$temp"
+      hadoopConf.set("mapreduce.job.outputformat.class", classOf[BigQueryOutputFormat[_, _]].getName)
+      val bucket = hadoopConf.get(BigQueryConfiguration.GCS_BUCKET_KEY)
+      val temp = s"spark-bigquery-${System.currentTimeMillis()}=${Random.nextInt(Int.MaxValue)}"
+      val gcsPath = s"gs://$bucket/hadoop/tmp/spark-bigquery/$temp"
 
-    Logger.info(s"Writing to: $gcsPath")
-    hadoopConf.set(BigQueryConfiguration.TEMP_GCS_PATH_KEY, gcsPath)
-    adaptedDf
-      .toJSON
-      .rdd
-      .map(json => (null, jsonParser.parse(json)))
-      .saveAsNewAPIHadoopFile(hadoopConf.get(BigQueryConfiguration.TEMP_GCS_PATH_KEY),
-        classOf[GsonBigQueryInputFormat],
-        classOf[LongWritable],
-        classOf[TextOutputFormat[NullWritable, JsonObject]],
-        hadoopConf)
-    gcsPath
+      Logger.info(s"Writing to: $gcsPath")
+      hadoopConf.set(BigQueryConfiguration.TEMP_GCS_PATH_KEY, gcsPath)
+
+      val dfColumns = inputDF.columns
+
+      inputDF
+        .toJSON
+        .rdd
+        .map { json =>
+            val jsonParsed = jsonParser.parse(json)
+            val jsonObj = jsonParsed.getAsJsonObject
+
+            dfColumns.foreach { column =>
+              if (!jsonObj.has(column)) {
+                jsonObj.add(column, null)
+              }
+            }
+
+          (null, jsonObj)
+        }
+        .saveAsNewAPIHadoopFile(hadoopConf.get(BigQueryConfiguration.TEMP_GCS_PATH_KEY),
+          classOf[GsonBigQueryInputFormat],
+          classOf[LongWritable],
+          classOf[TextOutputFormat[NullWritable, JsonObject]],
+          hadoopConf)
+      gcsPath
+    }
   }
 }

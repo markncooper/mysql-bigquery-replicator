@@ -29,6 +29,7 @@ spIncludeMaven := true
 spIgnoreProvided := true
 parallelExecution in Test := false
 publishMavenStyle := true
+isSnapshot := true
 
 libraryDependencies ++= Seq(
   "com.google.guava" % "guava" % "20.0",
