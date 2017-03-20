@@ -32,11 +32,15 @@ publishMavenStyle := true
 isSnapshot := true
 
 libraryDependencies ++= Seq(
+//  "com.databricks" %% "spark-avro" % "3.2.0",
   "com.google.guava" % "guava" % "20.0",
   "com.google.apis" % "google-api-services-bigquery" % "v2-rev336-1.22.0",
   "com.google.cloud" % "google-cloud-bigquery" % "0.9.3-beta",
   "com.google.cloud.bigdataoss" % "bigquery-connector" % "0.10.1-hadoop2"
     exclude ("com.google.guava", "guava-jdk5"),
+
+  "com.spotify" %% "spark-bigquery" % "0.2.1-DATEFIX"
+    exclude ("com.databricks", "spark-avro_2.11"),
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
   "org.scalikejdbc" %% "scalikejdbc" % "2.5.0",
@@ -73,9 +77,10 @@ pomExtra                      := {
   </developers>
 }
 
+
 assemblyMergeStrategy in assembly := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-  case x => MergeStrategy.first
+  case x => MergeStrategy.last
 }
 
 assemblyShadeRules in assembly := Seq(

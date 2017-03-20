@@ -1,10 +1,9 @@
 package com.brigade.spark
 
 import java.util.{Collections, UUID}
-import java.util.concurrent.ExecutionException
 
 import bqutils.BigQueryServiceFactory
-import com.google.cloud.hadoop.io.bigquery.{BigQueryStrings, BigQueryUtils}
+import com.google.cloud.hadoop.io.bigquery.BigQueryUtils
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.util.Progressable
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -15,7 +14,10 @@ import com.google.gson.{JsonObject, JsonParser}
 import org.apache.hadoop.io.{LongWritable, NullWritable}
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat
 import org.slf4j.LoggerFactory
+
 import scala.collection.JavaConverters._
+import com.spotify.spark.bigquery._
+import org.apache.spark.sql.jdbc.JdbcDialects
 
 import scala.util.Random
 
@@ -40,12 +42,20 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
 
 
   setGcpJsonKeyFile("gcp-prod-credentials.json")
-
+  sqlContext.setGcpJsonKeyFile("gcp-prod-credentials.json")
 
   private def waitForJob(job: Job): Unit = {
     BigQueryUtils.waitForJobCompletion(bigquery, projectName, job.getJobReference, new Progressable {
       override def progress(): Unit = {}
     })
+  }
+
+  def saveToBigquery(dataframe: DataFrame, filename: String): Unit = {
+    val fqTableName = s"$projectName:$datasetName.$filename"
+
+    dataframe.printSchema()
+
+    dataframe.saveAsBigQueryTable(fqTableName)
   }
 
 

@@ -4,11 +4,12 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 import com.typesafe.config.{Config, ConfigFactory}
+import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.{DataFrame, SQLContext, SparkSession}
 import org.slf4j.LoggerFactory
-//import com.appsflyer.spark.bigquery._
 
 import scala.collection.parallel.ForkJoinTaskSupport
+
 
 class BQImporter(spark: SparkSession, config: Config) {
   @transient val Logger = LoggerFactory.getLogger(getClass)
@@ -81,8 +82,9 @@ class BQImporter(spark: SparkSession, config: Config) {
 
     try {
       retry(maxRetries, outputTableName) {
-        gcpPath = bqUtils.writeDFToGoogleStorage(sourceDF)
-        bqUtils.loadIntoBigTable(gcpPath, gcpTablePrefix + outputTableName)
+        bqUtils.saveToBigquery(sourceDF, gcpTablePrefix + outputTableName)
+//        gcpPath = bqUtils.writeDFToGoogleStorage(sourceDF)
+//        bqUtils.loadIntoBigTable(gcpPath, gcpTablePrefix + outputTableName)
       }
       None
     } catch {
