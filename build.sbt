@@ -56,6 +56,7 @@ libraryDependencies ++= Seq(
 )
 
 resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
+resolvers += "Nexus" at "http://nexus.brigade.zone:8081/nexus/content/repositories/releases"
 
 // Release settings
 licenses += "Apache-2.0" -> url("http://opensource.org/licenses/Apache-2.0")
