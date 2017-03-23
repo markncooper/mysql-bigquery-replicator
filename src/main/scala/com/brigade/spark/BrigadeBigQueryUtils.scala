@@ -55,7 +55,7 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
 
     dataframe.printSchema()
 
-    dataframe.saveAsBigQueryTable(fqTableName)
+    dataframe.saveAsBigQueryTable(fqTableName, WriteDisposition.WRITE_TRUNCATE)
   }
 
 
