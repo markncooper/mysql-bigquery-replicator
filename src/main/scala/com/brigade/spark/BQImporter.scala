@@ -22,10 +22,10 @@ class BQImporter(spark: SparkSession, config: Config) {
   private val gcpOverwriteExisting = gcpConfig.getBoolean("overwrite-existing")
   private val maxParallelWriters = config.getInt("max-parallel-writers")
   private val gcpTablePrefix = gcpConfig.getString("table-prefix")
-  private val gcpJsonCredentialsFilename = gcpConfig.getString("json-credentials")
+  private val gcpJsonCredentialsFilename = System.getenv().get("GOOGLE_APPLICATION_CREDENTIALS")
   private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
   private val maxRetries = config.getInt("max-retries")
-  @transient private val bqUtils = new BrigadeBigQueryUtils(spark, gcpProjectID, gcpDatasetID, gcpTempBucketID)
+  @transient private val bqUtils = new BrigadeBigQueryUtils(spark, gcpProjectID, gcpDatasetID, gcpTempBucketID, gcpJsonCredentialsFilename)
 
   protected def getToday(): String = {
     val now = LocalDate.now()

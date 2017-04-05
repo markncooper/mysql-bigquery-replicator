@@ -21,7 +21,7 @@ import org.apache.spark.sql.jdbc.JdbcDialects
 
 import scala.util.Random
 
-class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName: String, gcsTempBucket: String) extends Serializable {
+class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName: String, gcsTempBucket: String, keyFile: String) extends Serializable {
   val Logger = LoggerFactory.getLogger(getClass)
   import spark.implicits._
   @transient val sqlContext = spark.sqlContext
@@ -41,8 +41,7 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
   //hadoopConf.set("mapreduce.output.fileoutputformat.compress.type", "RECORD")
 
 
-  setGcpJsonKeyFile("gcp-prod-credentials.json")
-  sqlContext.setGcpJsonKeyFile("gcp-prod-credentials.json")
+  sqlContext.setGcpJsonKeyFile(keyFile)
 
   private def waitForJob(job: Job): Unit = {
     BigQueryUtils.waitForJobCompletion(bigquery, projectName, job.getJobReference, new Progressable {
@@ -56,12 +55,6 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
     dataframe.printSchema()
 
     dataframe.saveAsBigQueryTable(fqTableName, WriteDisposition.WRITE_TRUNCATE)
-  }
-
-
-  def setGcpJsonKeyFile(jsonKeyFile: String): Unit = {
-    hadoopConf.set("mapred.bq.auth.service.account.json.keyfile", jsonKeyFile)
-    hadoopConf.set("fs.gs.auth.service.account.json.keyfile", jsonKeyFile)
   }
 
   def loadIntoBigTable(sourceGCSPath: String, targetTableName: String): Unit = {
