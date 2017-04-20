@@ -83,8 +83,6 @@ class BQImporter(spark: SparkSession, config: Config) {
     try {
       retry(maxRetries, outputTableName) {
         bqUtils.saveToBigquery(sourceDF, gcpTablePrefix + outputTableName)
-//        gcpPath = bqUtils.writeDFToGoogleStorage(sourceDF)
-//        bqUtils.loadIntoBigTable(gcpPath, gcpTablePrefix + outputTableName)
       }
       None
     } catch {

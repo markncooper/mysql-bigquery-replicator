@@ -24,6 +24,7 @@ class DBUtils (conf: Config) {
   private val database = conf.getString("database")
   private val autoParallelize = conf.getBoolean("auto-parallelize")
   private val bytesPerPartition = conf.getLong("megabytes-per-partition") * 1024 * 1024
+  private val MinSplitableTableSizeInBytes = 5000000
 
   private val whitelist = conf.getStringList("tables-whitelist").asScala.map { _.toLowerCase }.toSet
   private val blacklist = conf.getStringList("tables-blacklist").asScala.map { _.toLowerCase }.toSet
@@ -130,7 +131,9 @@ class DBUtils (conf: Config) {
   def getTablesToSync()(implicit sqlContext: SQLContext): Seq[RDBMSTable] ={
     val tableNameSize =
       NamedDB(database) readOnly { implicit session =>
-        sql"SELECT table_name, table_rows, data_length, index_length FROM information_schema.TABLES WHERE table_schema=${database} AND data_length IS NOT null"
+        sql"""SELECT table_name, table_rows, data_length, index_length
+              FROM information_schema.TABLES
+              WHERE table_schema=${database} AND data_length IS NOT null"""
           .map { rs =>
             val tableName = rs.string("table_name")
             val tableRows = rs.long("table_rows")
@@ -163,7 +166,7 @@ class DBUtils (conf: Config) {
       val mutable = columns.contains("updated_at")
       val keyColumn = getKeyColumn(name)
 
-      if (size < 5000000){
+      if (size <= MinSplitableTableSizeInBytes){
         Logger.warn(s"Skipping key discovered for small table $name")
         RDBMSTable(name, size, !mutable, None, None, None)
       } else if (keyColumn.nonEmpty) {
