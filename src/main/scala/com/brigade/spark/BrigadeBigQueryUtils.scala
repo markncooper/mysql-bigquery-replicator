@@ -3,6 +3,7 @@ package com.brigade.spark
 import java.util.{Collections, UUID}
 
 import bqutils.BigQueryServiceFactory
+import com.appsflyer.spark.bigquery.BigQuerySchema
 import com.google.cloud.hadoop.io.bigquery.BigQueryUtils
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.util.Progressable
@@ -34,13 +35,6 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
   hadoopConf.set(BigQueryConfiguration.GCS_BUCKET_KEY, gcsTempBucket)
   hadoopConf.set(BigQueryConfiguration.PROJECT_ID_KEY, projectName)
 
-  // TODO: BigQuery claims to support compression but won't load files when this is enable.
-  //       This shrinks the GCS storage by 10x so we should figure this out.
-  //hadoopConf.set("mapreduce.output.fileoutputformat.compress", "true")
-  //hadoopConf.set("mapreduce.output.fileoutputformat.compress.codec", "org.apache.hadoop.io.compress.GzipCodec")
-  //hadoopConf.set("mapreduce.output.fileoutputformat.compress.type", "RECORD")
-
-
   sqlContext.setGcpJsonKeyFile(keyFile)
 
   private def waitForJob(job: Job): Unit = {
@@ -51,10 +45,14 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
 
   def saveToBigquery(dataframe: DataFrame, filename: String): Unit = {
     val fqTableName = s"$projectName:$datasetName.$filename"
-
     dataframe.printSchema()
 
-    dataframe.saveAsBigQueryTable(fqTableName, WriteDisposition.WRITE_TRUNCATE)
+    dataframe
+      .saveAsBigQueryTableWithRichSchema(
+        fqTableName,
+        WriteDisposition.WRITE_TRUNCATE,
+        CreateDisposition.CREATE_IF_NEEDED
+      )
   }
 
   def loadIntoBigTable(sourceGCSPath: String, targetTableName: String): Unit = {
