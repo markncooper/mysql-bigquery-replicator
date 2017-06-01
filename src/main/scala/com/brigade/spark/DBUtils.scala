@@ -1,13 +1,11 @@
 package com.brigade.spark
 
-import com.typesafe.config.Config
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import java.util.TimeZone
 
 import org.slf4j.LoggerFactory
 import scalikejdbc.{ConnectionPool, ConnectionPoolSettings, NamedDB}
 import scalikejdbc._
-import scala.collection.JavaConverters._
 
 case class RDBMSTable(name: String, size: Long, immutable: Boolean, keyColumnName: Option[String], minKey: Option[Long], maxKey: Option[Long]){
   def getKeyColumnIsKnown(): Boolean ={
@@ -15,24 +13,13 @@ case class RDBMSTable(name: String, size: Long, immutable: Boolean, keyColumnNam
   }
 }
 
-class DBUtils (conf: Config) {
+class DBUtils (conf: ImportConfig) {
   import DBUtils.Logger
-
-  private val url = conf.getString("url")
-  private val username = conf.getString("user")
-  private val password = conf.getString("password")
-  private val database = conf.getString("database")
-  private val autoParallelize = conf.getBoolean("auto-parallelize")
-  private val bytesPerPartition = conf.getLong("megabytes-per-partition") * 1024 * 1024
-  private val MinSplitableTableSizeInBytes = 5000000
-
-  private val whitelist = conf.getStringList("tables-whitelist").asScala.map { _.toLowerCase }.toSet
-  private val blacklist = conf.getStringList("tables-blacklist").asScala.map { _.toLowerCase }.toSet
 
   private val connProps = new java.util.Properties()
   connProps.put("driver", "com.mysql.jdbc.Driver")
-  connProps.put("user", username)
-  connProps.put("password", password)
+  connProps.put("user", conf.dbUsername)
+  connProps.put("password", conf.dbPassword)
 
   Class.forName("com.mysql.jdbc.Driver")
 
@@ -42,7 +29,7 @@ class DBUtils (conf: Config) {
     connectionTimeoutMillis = 3000L,
     validationQuery = "select 1 from dual")
 
-  setupConnectionPool(database)
+  setupConnectionPool(conf.database)
 
   def setupConnectionPool(poolName: String): ConnectionPool = {
     if (!ConnectionPool.isInitialized(poolName)) {
@@ -51,9 +38,9 @@ class DBUtils (conf: Config) {
       TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
       ConnectionPool.add (
         poolName,
-        url,
-        username,
-        password,
+        conf.dbUrl,
+        conf.dbUsername,
+        conf.dbPassword,
         connectionPoolSettings
       )
     }
@@ -61,19 +48,19 @@ class DBUtils (conf: Config) {
   }
 
   def getConnection() = {
-    NamedDB(database)
+    NamedDB(conf.database)
   }
 
   def getKeyColumn(tableName: String): List[String] = {
-    NamedDB(database) readOnly { implicit session =>
+    NamedDB(conf.database) readOnly { implicit session =>
       sql"""
          SELECT k.column_name
          FROM information_schema.table_constraints t
          JOIN information_schema.key_column_usage k
          USING(constraint_name,table_schema,table_name)
          WHERE t.constraint_type='PRIMARY KEY'
-           AND t.table_schema=${database}
-           AND t.table_name=${tableName}
+           AND t.table_schema=${conf.database}
+           AND t.table_name=$tableName
          """
         .map (rs => rs.string("column_name"))
         .list()
@@ -82,7 +69,7 @@ class DBUtils (conf: Config) {
   }
 
   def getMaxValue(tableName: String, columnName: String): Option[Long] = {
-    NamedDB(database) readOnly { implicit session =>
+    NamedDB(conf.database) readOnly { implicit session =>
       val tableNoQuotes = SQLSyntax.createUnsafely(tableName)
       val idFieldNoQuotes = SQLSyntax.createUnsafely(columnName)
 
@@ -96,10 +83,10 @@ class DBUtils (conf: Config) {
   }
 
   def getColumnNames(tableName: String): List[String] = {
-    NamedDB(database) readOnly { implicit session =>
+    NamedDB(conf.database) readOnly { implicit session =>
       sql"""SELECT COLUMN_NAME
         FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA=$database
+      WHERE TABLE_SCHEMA=${conf.database}
       AND TABLE_NAME=$tableName"""
         .map(rs => rs.string("COLUMN_NAME"))
         .list()
@@ -108,32 +95,32 @@ class DBUtils (conf: Config) {
   }
 
   def getSourceDF(table: RDBMSTable)(implicit sqlContext: SQLContext): DataFrame = {
-    if (autoParallelize && table.getKeyColumnIsKnown()){
+    if (conf.autoParallelize && table.getKeyColumnIsKnown()){
       val min = table.minKey.get
       val max = table.maxKey.get
       val sizeOfSync = table.size.toFloat * ( (max.toFloat - min.toFloat) / max.toFloat)
 
-      val partitions = math.ceil(sizeOfSync / bytesPerPartition).toInt
+      val partitions = math.ceil(sizeOfSync / conf.bytesPerPartition).toInt
 
       Logger.info(s"Build an DF for table ${table.name} with $min / $max / $partitions")
       sqlContext
         .read
-        .jdbc(url, table.name, table.keyColumnName.get, min, max, partitions, connProps)
+        .jdbc(conf.dbUrl, s"${conf.database}.${table.name}", table.keyColumnName.get, min, max, partitions, connProps)
     } else {
       Logger.info(s"Build an DF for table ${table.name} with NO parallelization.")
 
       sqlContext
         .read
-        .jdbc(url, table.name, connProps)
+        .jdbc(conf.dbUrl, table.name, connProps)
     }
   }
 
   def getTablesToSync()(implicit sqlContext: SQLContext): Seq[RDBMSTable] ={
     val tableNameSize =
-      NamedDB(database) readOnly { implicit session =>
+      NamedDB(conf.database) readOnly { implicit session =>
         sql"""SELECT table_name, table_rows, data_length, index_length
               FROM information_schema.TABLES
-              WHERE table_schema=${database} AND data_length IS NOT null"""
+              WHERE table_schema=${conf.database} AND data_length IS NOT null"""
           .map { rs =>
             val tableName = rs.string("table_name")
             val tableRows = rs.long("table_rows")
@@ -149,10 +136,10 @@ class DBUtils (conf: Config) {
         if (tableRows == 0){
           Logger.info(s"Skipping table $tableName, table has no rows.")
           None
-        } else if (!whitelist.isEmpty && !whitelist.contains(tableName)){
+        } else if (!conf.whitelist.isEmpty && !conf.whitelist.contains(tableName)){
           Logger.info(s"Skipping table $tableName, not on whitelist.")
           None
-        } else if (!blacklist.isEmpty && blacklist.contains(tableName)){
+        } else if (!conf.blacklist.isEmpty && conf.blacklist.contains(tableName)){
           Logger.info(s"Skipping table $tableName, table on blacklist.")
           None
         } else {
@@ -166,7 +153,7 @@ class DBUtils (conf: Config) {
       val mutable = columns.contains("updated_at")
       val keyColumn = getKeyColumn(name)
 
-      if (size <= MinSplitableTableSizeInBytes){
+      if (size <= conf.minSplitableTableSizeInBytes){
         Logger.warn(s"Skipping key discovered for small table $name")
         RDBMSTable(name, size, !mutable, None, None, None)
       } else if (keyColumn.nonEmpty) {

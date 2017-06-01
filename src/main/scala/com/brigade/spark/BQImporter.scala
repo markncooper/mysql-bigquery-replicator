@@ -11,11 +11,12 @@ import org.slf4j.LoggerFactory
 import scala.collection.parallel.ForkJoinTaskSupport
 
 
-class BQImporter(spark: SparkSession, config: Config) {
+class BQImporter(spark: SparkSession, config: ImportConfig) {
   @transient val Logger = LoggerFactory.getLogger(getClass)
   implicit private val sqlContext = new SQLContext(spark.sparkContext)
-  private val gcpConfig = config.getConfig("gcp")
 
+  /*
+  private val gcpConfig = config.getConfig("gcp")
   private val gcpProjectID = gcpConfig.getString("project-id")
   private val gcpTempBucketID = gcpConfig.getString("tempbucket-id")
   private val gcpDatasetID = gcpConfig.getString("dataset-id")
@@ -25,7 +26,15 @@ class BQImporter(spark: SparkSession, config: Config) {
   private val gcpJsonCredentialsFilename = System.getenv().get("GOOGLE_APPLICATION_CREDENTIALS")
   private val attemptIncrementalUpdates = config.getBoolean("attempt-incremental-updates")
   private val maxRetries = config.getInt("max-retries")
-  @transient private val bqUtils = new BrigadeBigQueryUtils(spark, gcpProjectID, gcpDatasetID, gcpTempBucketID, gcpJsonCredentialsFilename)
+*/
+
+  @transient private val bqUtils = new BrigadeBigQueryUtils(
+    spark,
+    config.projectId,
+    config.datasetId,
+    config.tempBucketId,
+    config.credentialsFilename
+  )
 
   protected def getToday(): String = {
     val now = LocalDate.now()
@@ -36,15 +45,15 @@ class BQImporter(spark: SparkSession, config: Config) {
   def run() = {
     Logger.info("Starting BQ importer.")
 
-    val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(maxParallelWriters))
-    val dbUtils = new DBUtils(config.getConfig("source-db"))
+    val executor = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(config.maxParallelWriters))
+    val dbUtils = new DBUtils(config)
     val tablesToCopy = dbUtils.getTablesToSync()
 
     Logger.info("About to copy:")
     tablesToCopy.foreach { tableName =>
       Logger.info(s"\t$tableName")
     }
-    Logger.info(s"Into dataset $gcpDatasetID.")
+    Logger.info(s"Into dataset ${config.datasetId}.")
 
     val parallizedTablesToCopy = tablesToCopy.par
     parallizedTablesToCopy.tasksupport = executor
@@ -53,7 +62,7 @@ class BQImporter(spark: SparkSession, config: Config) {
       parallizedTablesToCopy.flatMap { tableMetadata =>
 
         val sourceDF =
-          if (tableMetadata.getKeyColumnIsKnown() && tableMetadata.immutable && attemptIncrementalUpdates) {
+          if (tableMetadata.getKeyColumnIsKnown() && tableMetadata.immutable && config.attemptIncrementalUpdates) {
             throw new RuntimeException("Not implemented yet.")
           } else {
             dbUtils.getSourceDF(tableMetadata)
@@ -81,8 +90,8 @@ class BQImporter(spark: SparkSession, config: Config) {
     var gcpPath = ""
 
     try {
-      retry(maxRetries, outputTableName) {
-        bqUtils.saveToBigquery(sourceDF, gcpTablePrefix + outputTableName)
+      retry(config.maxRetries, outputTableName) {
+        bqUtils.saveToBigquery(sourceDF, config.outputTablePrefix + outputTableName)
       }
       None
     } catch {
@@ -118,13 +127,14 @@ class BQImporter(spark: SparkSession, config: Config) {
 object BQImporter {
   def main(args: Array[String]): Unit = {
     val config = ConfigFactory.load()
+    val importConfig = ImportConfig(config)
 
     val spark = SparkSession
       .builder()
       .appName("BigQuery Importer")
       .getOrCreate()
 
-    val importer = new BQImporter(spark, config)
+    val importer = new BQImporter(spark, importConfig)
 
     importer.run()
   }
