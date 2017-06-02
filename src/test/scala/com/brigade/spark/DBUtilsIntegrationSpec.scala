@@ -33,7 +33,7 @@ class DBUtilsIntegrationSpec
     """.stripMargin
   ).withFallback(ConfigFactory.defaultReference())
 
-  lazy val dbUtils = new DBUtils(appConfig.getConfig("source-db"))
+  lazy val dbUtils = new DBUtils(ImportConfig(appConfig))
 
   override def db = dbUtils.getConnection().toDB
 
