@@ -39,7 +39,7 @@ libraryDependencies ++= Seq(
   "com.google.cloud.bigdataoss" % "bigquery-connector" % "0.10.1-hadoop2"
     exclude ("com.google.guava", "guava-jdk5"),
 
-  "com.spotify" %% "spark-bigquery" % "0.2.0",
+  "com.spotify" %% "spark-bigquery" % "0.2.1-BRIGADE02",
   "com.typesafe" % "config" % "1.2.1",
   "mysql" % "mysql-connector-java" % "5.1.36",
   "org.scalikejdbc" %% "scalikejdbc" % "2.5.0",
