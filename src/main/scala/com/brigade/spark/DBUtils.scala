@@ -105,13 +105,21 @@ class DBUtils (conf: ImportConfig) {
       Logger.info(s"Build an DF for table ${table.name} with $min / $max / $partitions")
       sqlContext
         .read
-        .jdbc(conf.dbUrl, s"${conf.database}.${table.name}", table.keyColumnName.get, min, max, partitions, connProps)
+        .jdbc(
+          conf.database,
+          s"${conf.database}.${table.name}",
+          table.keyColumnName.get,
+          min,
+          max,
+          partitions,
+          connProps
+        )
     } else {
       Logger.info(s"Build an DF for table ${table.name} with NO parallelization.")
 
       sqlContext
         .read
-        .jdbc(conf.dbUrl, table.name, connProps)
+        .jdbc(conf.dbUrl, s"${conf.database}.${table.name}", connProps)
     }
   }
 
