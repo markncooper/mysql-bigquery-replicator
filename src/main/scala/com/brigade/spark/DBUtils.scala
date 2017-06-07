@@ -106,7 +106,7 @@ class DBUtils (conf: ImportConfig) {
       sqlContext
         .read
         .jdbc(
-          conf.database,
+          conf.dbUrl,
           s"${conf.database}.${table.name}",
           table.keyColumnName.get,
           min,
