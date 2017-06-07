@@ -25,7 +25,7 @@ class BrigadeBigQueryUtils(spark: SparkSession, projectName: String, datasetName
   def saveToBigquery(dataframe: DataFrame, filename: String): Unit = {
     val fqTableName = s"$projectName:$datasetName.$filename"
     dataframe.printSchema()
-    dataframe.saveAsBigQueryTable(fqTableName, WriteDisposition.WRITE_TRUNCATE)
+    dataframe.saveAsBigQueryTableWithRichSchema(fqTableName, WriteDisposition.WRITE_TRUNCATE)
   }
 
   private def delete(path: Path): Unit = {
